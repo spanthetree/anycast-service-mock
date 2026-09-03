@@ -34,7 +34,7 @@ It is not intended to be the original historical source. It is a plausible role 
 .
 ├── ansible.cfg
 ├── inventories/example/hosts.yml
-├── group_vars/all/anycast.yml
+├── inventories/example/group_vars/all/anycast.yml
 ├── playbooks/site.yml
 └── roles/
     ├── dns/
@@ -42,6 +42,8 @@ It is not intended to be the original historical source. It is a plausible role 
     ├── gocast/
     └── routeserver/
 ```
+
+`group_vars/all/anycast.yml` lives beside the inventory it belongs to (`inventories/example/group_vars/all/`), not at the repo root, so Ansible auto-loads it for every host in that inventory without any explicit `vars_files` in `playbooks/site.yml`. A repo-root `group_vars/` is only auto-loaded when the inventory file itself lives at the repo root — with a nested inventory like this one it is silently ignored, which previously left `route_servers`, ASNs, and prefixes undefined for real playbook runs.
 
 ## Role Responsibilities
 
@@ -92,7 +94,7 @@ route_servers:
 Each instance receives the same `anycast_services` subscription list, so it monitors the same DNS/Syslog VIPs and withdraws only from its respective route-server peer. The systemd unit is ordered after the subscribed service units declared by the service roles.
 
 `routeserver`
-: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents on one side and core switches on the other, then export only approved Anycast VIP prefixes into the datacenter network.
+: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents on one side and core switches on the other, then export only approved Anycast VIP prefixes into the datacenter network with ECMP (`[global.use-multiple-paths.config] enabled = true`, toggled by `routeserver_multipath_enabled`, default `true`), so the core switch load-balances across every healthy anycast node instead of taking a single best path.
 
 The example inventory intentionally uses ordinary pre-existing groups:
 
@@ -105,6 +107,8 @@ bgp_route_servers:
 Anycast subscription is not represented as an inventory group. It is introduced by service role variables (`anycast: true`, `vip`) and by assigning the `gocast` role after the local service role has registered its metadata.
 
 ## Example Run
+
+`examples/render.yml` renders the same templates the real roles use, but without needing root or the target OS/packages. It does not hand-copy `dns`/`syslog`/`gocast`/`routeserver` variable values — it loads the actual role `defaults/main.yml` files and the actual `inventories/example/group_vars/all/anycast.yml` via `vars_files`, then derives `anycast_services` from `dns`/`syslog` the same way `roles/dns/tasks/main.yml` and `roles/syslog/tasks/main.yml` do. Changing a role default or `group_vars` value changes the example output on the next run — nothing to keep in sync by hand.
 
 Render example GoCast and route-server configs:
 

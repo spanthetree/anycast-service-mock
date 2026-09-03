@@ -2,6 +2,11 @@
   as = {{ rs_asn }}
   router-id = "{{ routeserver_router_id }}"
 
+{% if routeserver_multipath_enabled | bool %}
+[global.use-multiple-paths.config]
+  enabled = true
+{% endif %}
+
 {% for prefix in anycast_allowed_prefixes %}
 [[defined-sets.prefix-sets]]
   prefix-set-name = "ANYCAST_VIPS_{{ loop.index }}"

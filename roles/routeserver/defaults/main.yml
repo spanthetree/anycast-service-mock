@@ -14,3 +14,5 @@ core_asn: 64512
 core_peers: []
 agent_neighbor_prefixes: []
 anycast_allowed_prefixes: []
+
+routeserver_multipath_enabled: true

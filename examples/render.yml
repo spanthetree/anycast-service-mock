@@ -5,33 +5,38 @@
   become: false
   gather_facts: false
   vars_files:
-    - ../group_vars/all/anycast.yml
-  vars:
-    gocast_local_ip: 10.1.10.11
-    gocast_monitor_interval: 10s
-    gocast_cleanup_timer: 15m
-    gocast_origin: igp
-    gocast_communities: []
-    anycast_services:
-      - name: dns
-        port: 53
-        proto: udp
-        vip: 10.20.0.53/32
-        anycast: true
-        service_unit: bind9.service
-        monitor:
-          type: udp
-          port: 53
-      - name: syslog
-        port: 514
-        proto: udp
-        vip: 10.20.0.54/32
-        anycast: true
-        service_unit: rsyslog.service
-        monitor:
-          type: udp
-          port: 514
+    - ../roles/gocast/defaults/main.yml
+    - ../roles/routeserver/defaults/main.yml
+    - ../roles/dns/defaults/main.yml
+    - ../roles/syslog/defaults/main.yml
+    - ../inventories/example/group_vars/all/anycast.yml
   tasks:
+    - name: Derive local agent IP and subscribed services the same way the dns/syslog roles do
+      ansible.builtin.set_fact:
+        gocast_local_ip: "{{ hostvars['dns01.example.net'].ansible_host }}"
+        anycast_services: >-
+          {{
+            (dns.anycast | ternary([{
+              'name': 'dns',
+              'port': dns.port,
+              'proto': dns.proto,
+              'vip': dns.vip,
+              'anycast': dns.anycast,
+              'service_unit': dns.service_name ~ '.service',
+              'monitor': dns.monitor
+            }], []))
+            +
+            (syslog.anycast | ternary([{
+              'name': 'syslog',
+              'port': syslog.port,
+              'proto': syslog.proto,
+              'vip': syslog.vip,
+              'anycast': syslog.anycast,
+              'service_unit': syslog.service_name ~ '.service',
+              'monitor': syslog.monitor
+            }], []))
+          }}
+
     - name: Ensure generated example directories exist
       ansible.builtin.file:
         path: "{{ item }}"
