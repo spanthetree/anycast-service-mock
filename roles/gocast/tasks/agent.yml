@@ -1,0 +1,84 @@
+---
+- name: Ensure GoCast group exists
+  ansible.builtin.group:
+    name: "{{ gocast_group }}"
+    system: true
+
+- name: Ensure GoCast user exists
+  ansible.builtin.user:
+    name: "{{ gocast_user }}"
+    group: "{{ gocast_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Ensure GoCast configuration directory exists
+  ansible.builtin.file:
+    path: "{{ gocast_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ gocast_group }}"
+    mode: "0750"
+
+- name: Install GoCast binary
+  ansible.builtin.copy:
+    src: "{{ gocast_binary_src }}"
+    dest: "{{ gocast_binary }}"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart GoCast instances
+  when: gocast_install_binary | bool
+
+- name: Register GoCast instances from route-server map
+  ansible.builtin.set_fact:
+    gocast_instances: "{{ route_servers }}"
+
+- name: Validate route-server peers for GoCast instances
+  ansible.builtin.assert:
+    that:
+      - gocast_instances | length > 0
+      - item.name is defined
+      - item.peer_ip is defined or item.address is defined
+      - item.listen_addr is defined
+    fail_msg: "Each GoCast instance needs name, listen_addr, and either address or peer_ip."
+  loop: "{{ gocast_instances }}"
+
+- name: Validate unique GoCast listen addresses
+  ansible.builtin.assert:
+    that:
+      - >-
+        gocast_instances
+        | map(attribute='listen_addr')
+        | unique
+        | list
+        | length == gocast_instances | length
+    fail_msg: "Each GoCast instance needs a unique listen_addr on the local host."
+
+- name: Render GoCast agent configuration for each route server
+  ansible.builtin.template:
+    src: gocast.yaml.j2
+    dest: "{{ gocast_config_dir }}/gocast-{{ item.name }}.yaml"
+    owner: root
+    group: "{{ gocast_group }}"
+    mode: "0640"
+  loop: "{{ gocast_instances }}"
+  notify: Restart GoCast instances
+
+- name: Install GoCast systemd unit for each route server
+  ansible.builtin.template:
+    src: gocast.service.j2
+    dest: /etc/systemd/system/gocast-{{ item.name }}.service
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ gocast_instances }}"
+  notify: Restart GoCast instances
+
+- name: Enable GoCast services
+  ansible.builtin.systemd:
+    name: "gocast-{{ item.name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ gocast_instances }}"

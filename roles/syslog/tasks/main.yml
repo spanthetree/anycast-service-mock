@@ -1,0 +1,45 @@
+---
+- name: Install Syslog package
+  ansible.builtin.package:
+    name: "{{ syslog.package }}"
+    state: present
+
+- name: Ensure Syslog configuration directory exists
+  ansible.builtin.file:
+    path: "{{ syslog.config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Render Syslog listener configuration
+  ansible.builtin.template:
+    src: anycast-listener.conf.j2
+    dest: "{{ syslog.config_dir }}/10-anycast-listener.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Syslog
+
+- name: Enable Syslog service
+  ansible.builtin.service:
+    name: "{{ syslog.service_name }}"
+    enabled: true
+    state: started
+
+- name: Register Syslog with Anycast
+  ansible.builtin.set_fact:
+    anycast_services: >-
+      {{
+        anycast_services | default([]) +
+        [{
+          'name': 'syslog',
+          'port': syslog.port,
+          'proto': syslog.proto,
+          'vip': syslog.vip,
+          'anycast': syslog.anycast,
+          'service_unit': syslog.service_name ~ '.service',
+          'monitor': syslog.monitor
+        }]
+      }}
+  when: syslog.anycast | bool

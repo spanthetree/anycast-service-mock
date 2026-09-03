@@ -1,0 +1,58 @@
+---
+- name: Render example Anycast configs
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all/anycast.yml
+  vars:
+    gocast_local_ip: 10.1.10.11
+    gocast_monitor_interval: 10s
+    gocast_cleanup_timer: 15m
+    gocast_origin: igp
+    gocast_communities: []
+    anycast_services:
+      - name: dns
+        port: 53
+        proto: udp
+        vip: 10.20.0.53/32
+        anycast: true
+        service_unit: bind9.service
+        monitor:
+          type: udp
+          port: 53
+      - name: syslog
+        port: 514
+        proto: udp
+        vip: 10.20.0.54/32
+        anycast: true
+        service_unit: rsyslog.service
+        monitor:
+          type: udp
+          port: 514
+  tasks:
+    - name: Ensure generated example directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ playbook_dir }}/generated/gocast"
+        - "{{ playbook_dir }}/generated/routeserver"
+
+    - name: Render GoCast config for each route-server peer
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/gocast/templates/gocast.yaml.j2"
+        dest: "{{ playbook_dir }}/generated/gocast/gocast-{{ item.name }}.yaml"
+        mode: "0644"
+      loop: "{{ route_servers }}"
+
+    - name: Render GoBGP route-server config for each route server
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/routeserver/templates/gobgpd.conf.j2"
+        dest: "{{ playbook_dir }}/generated/routeserver/gobgpd-{{ item.name }}.conf"
+        mode: "0644"
+      vars:
+        routeserver_router_id: "{{ item.address }}"
+      loop: "{{ route_servers }}"

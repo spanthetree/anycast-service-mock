@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  role_name: gocast
+  author: reconstructed
+  description: GoCast BGP agent role for Anycast-subscribed local services.
+  license: MIT
+  min_ansible_version: "2.14"
+dependencies: []

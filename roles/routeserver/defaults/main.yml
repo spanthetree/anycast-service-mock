@@ -1,0 +1,16 @@
+---
+routeserver_user: gobgp
+routeserver_group: gobgp
+routeserver_package: gobgpd
+routeserver_service_name: gobgpd
+routeserver_config_dir: /etc/gobgp
+routeserver_config_file: /etc/gobgp/gobgpd.conf
+routeserver_router_id: "{{ ansible_default_ipv4.address | default(ansible_host) }}"
+
+rs_asn: 65000
+gocast_asn: 65010
+core_asn: 64512
+
+core_peers: []
+agent_neighbor_prefixes: []
+anycast_allowed_prefixes: []

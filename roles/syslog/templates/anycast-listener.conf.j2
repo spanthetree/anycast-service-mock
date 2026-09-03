@@ -1,0 +1,7 @@
+module(load="imudp")
+input(type="imudp" address="{{ syslog.listen_address }}" port="{{ syslog.port }}")
+
+template(name="AnycastRemoteFormat" type="string"
+         string="%timestamp% %fromhost-ip% %syslogtag%%msg%\n")
+
+*.* /var/log/remote-anycast.log;AnycastRemoteFormat

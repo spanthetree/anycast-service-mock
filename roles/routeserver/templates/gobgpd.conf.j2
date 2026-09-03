@@ -1,0 +1,63 @@
+[global.config]
+  as = {{ rs_asn }}
+  router-id = "{{ routeserver_router_id }}"
+
+{% for prefix in anycast_allowed_prefixes %}
+[[defined-sets.prefix-sets]]
+  prefix-set-name = "ANYCAST_VIPS_{{ loop.index }}"
+
+  [[defined-sets.prefix-sets.prefix-list]]
+    ip-prefix = "{{ prefix }}"
+    masklength-range = "32..32"
+{% endfor %}
+
+[[policy-definitions]]
+  name = "ALLOW_ANYCAST_VIPS"
+
+{% for prefix in anycast_allowed_prefixes %}
+  [[policy-definitions.statements]]
+    name = "allow-anycast-vips-{{ loop.index }}"
+
+    [policy-definitions.statements.conditions.match-prefix-set.config]
+      prefix-set = "ANYCAST_VIPS_{{ loop.index }}"
+      match-set-options = "any"
+
+    [policy-definitions.statements.actions]
+      route-disposition = "accept-route"
+{% endfor %}
+
+[[policy-definitions]]
+  name = "REJECT_OTHER_PREFIXES"
+
+  [[policy-definitions.statements]]
+    name = "reject-default"
+
+    [policy-definitions.statements.actions]
+      route-disposition = "reject-route"
+
+{% for peer in core_peers %}
+[[neighbors]]
+  [neighbors.config]
+    neighbor-address = "{{ peer }}"
+    peer-as = {{ core_asn }}
+
+  [neighbors.apply-policy.config]
+    export-policy-list = ["ALLOW_ANYCAST_VIPS", "REJECT_OTHER_PREFIXES"]
+    default-export-policy = "reject-route"
+{% endfor %}
+
+{% for prefix in agent_neighbor_prefixes %}
+[[dynamic-neighbors]]
+  [dynamic-neighbors.config]
+    prefix = "{{ prefix }}"
+    peer-group = "ANYCAST_AGENTS"
+{% endfor %}
+
+[[peer-groups]]
+  [peer-groups.config]
+    peer-group-name = "ANYCAST_AGENTS"
+    peer-as = {{ gocast_asn }}
+
+  [peer-groups.apply-policy.config]
+    import-policy-list = ["ALLOW_ANYCAST_VIPS", "REJECT_OTHER_PREFIXES"]
+    default-import-policy = "reject-route"

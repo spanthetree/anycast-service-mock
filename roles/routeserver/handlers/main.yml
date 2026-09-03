@@ -1,0 +1,6 @@
+---
+- name: Restart GoBGP
+  ansible.builtin.systemd:
+    name: "{{ routeserver_service_name }}"
+    state: restarted
+    daemon_reload: true

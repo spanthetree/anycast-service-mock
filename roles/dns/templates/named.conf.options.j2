@@ -1,0 +1,8 @@
+options {
+        directory "/var/cache/bind";
+        listen-on port {{ dns.port }} { {{ dns.listen_address }}; };
+        listen-on-v6 { none; };
+        recursion no;
+        allow-query { any; };
+        dnssec-validation auto;
+};

@@ -1,0 +1,51 @@
+---
+- name: Ensure GoBGP group exists
+  ansible.builtin.group:
+    name: "{{ routeserver_group }}"
+    system: true
+
+- name: Ensure GoBGP user exists
+  ansible.builtin.user:
+    name: "{{ routeserver_user }}"
+    group: "{{ routeserver_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+
+- name: Install GoBGP package
+  ansible.builtin.package:
+    name: "{{ routeserver_package }}"
+    state: present
+
+- name: Ensure GoBGP configuration directory exists
+  ansible.builtin.file:
+    path: "{{ routeserver_config_dir }}"
+    state: directory
+    owner: root
+    group: "{{ routeserver_group }}"
+    mode: "0750"
+
+- name: Render GoBGP route-server configuration
+  ansible.builtin.template:
+    src: gobgpd.conf.j2
+    dest: "{{ routeserver_config_file }}"
+    owner: root
+    group: "{{ routeserver_group }}"
+    mode: "0640"
+  notify: Restart GoBGP
+
+- name: Install GoBGP systemd unit
+  ansible.builtin.template:
+    src: gobgpd.service.j2
+    dest: /etc/systemd/system/{{ routeserver_service_name }}.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart GoBGP
+
+- name: Enable GoBGP service
+  ansible.builtin.systemd:
+    name: "{{ routeserver_service_name }}"
+    enabled: true
+    state: started
+    daemon_reload: true

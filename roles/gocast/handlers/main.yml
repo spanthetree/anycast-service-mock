@@ -1,0 +1,8 @@
+---
+- name: Restart GoCast instances
+  ansible.builtin.systemd:
+    name: "gocast-{{ item.name }}"
+    state: restarted
+    daemon_reload: true
+  loop: "{{ gocast_instances | default(route_servers) }}"
+  when: item.name is defined

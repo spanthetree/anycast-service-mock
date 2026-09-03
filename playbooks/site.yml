@@ -1,0 +1,16 @@
+---
+- name: Configure existing service hosts
+  hosts: dns_servers:syslog_servers
+  become: true
+  roles:
+    - role: dns
+      when: "'dns_servers' in group_names"
+    - role: syslog
+      when: "'syslog_servers' in group_names"
+    - role: gocast
+
+- name: Configure BGP route servers
+  hosts: bgp_route_servers
+  become: true
+  roles:
+    - role: routeserver

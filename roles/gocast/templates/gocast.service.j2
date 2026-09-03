@@ -1,0 +1,20 @@
+[Unit]
+Description=GoCast Anycast Agent for {{ item.name }}
+After=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
+Wants=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
+
+[Service]
+Type=simple
+User={{ gocast_user }}
+Group={{ gocast_group }}
+ExecStart={{ gocast_binary }} -logtostderr -v={{ gocast_log_level }} -config {{ gocast_config_dir }}/gocast-{{ item.name }}.yaml
+Restart=always
+RestartSec=5
+{% if gocast_capabilities | bool %}
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target

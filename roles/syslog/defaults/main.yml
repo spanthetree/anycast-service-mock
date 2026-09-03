@@ -1,0 +1,13 @@
+---
+syslog:
+  package: rsyslog
+  service_name: rsyslog
+  config_dir: /etc/rsyslog.d
+  listen_address: 0.0.0.0
+  port: 514
+  proto: udp
+  anycast: true
+  vip: 10.20.0.54/32
+  monitor:
+    type: udp
+    port: 514

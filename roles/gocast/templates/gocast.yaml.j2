@@ -1,0 +1,34 @@
+agent:
+  listen_addr: "{{ item.listen_addr }}"
+  monitor_interval: "{{ gocast_monitor_interval }}"
+  cleanup_timer: "{{ gocast_cleanup_timer }}"
+
+bgp:
+  local_as: {{ gocast_asn }}
+  peer_as: {{ item.peer_as | default(rs_asn) }}
+  local_ip: "{{ gocast_local_ip }}"
+  peer_ip: "{{ item.peer_ip | default(item.address) }}"
+  origin: "{{ gocast_origin }}"
+{% if gocast_communities | length > 0 %}
+  communities:
+{% for community in gocast_communities %}
+    - "{{ community }}"
+{% endfor %}
+{% endif %}
+
+apps:
+{% for service in anycast_services | default([]) %}
+{% if service.anycast | default(false) %}
+  - name: "{{ service.name }}"
+    vip: "{{ service.vip }}"
+{% if service.vip_config is defined %}
+    vip_config: {{ service.vip_config | to_json }}
+{% endif %}
+    monitors:
+{% if service.monitor.type == 'exec' %}
+      - "exec:{{ service.monitor.command }}"
+{% else %}
+      - "port:{{ service.monitor.type | default(service.proto) }}:{{ service.monitor.port | default(service.port) }}"
+{% endif %}
+{% endif %}
+{% endfor %}

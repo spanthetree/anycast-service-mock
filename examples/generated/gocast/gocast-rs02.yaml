@@ -1,0 +1,21 @@
+agent:
+  listen_addr: ":8082"
+  monitor_interval: "10s"
+  cleanup_timer: "15m"
+
+bgp:
+  local_as: 65010
+  peer_as: 65000
+  local_ip: "10.1.10.11"
+  peer_ip: "10.1.0.12"
+  origin: "igp"
+
+apps:
+  - name: "dns"
+    vip: "10.20.0.53/32"
+    monitors:
+      - "port:udp:53"
+  - name: "syslog"
+    vip: "10.20.0.54/32"
+    monitors:
+      - "port:udp:514"

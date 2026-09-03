@@ -1,0 +1,16 @@
+[Unit]
+Description=GoBGP Anycast Route Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ routeserver_user }}
+Group={{ routeserver_group }}
+ExecStart=/usr/bin/gobgpd -f {{ routeserver_config_file }}
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+---
+gocast_user: gocast
+gocast_group: gocast
+gocast_binary: /usr/local/bin/gocast
+gocast_config_dir: /etc/gocast
+gocast_monitor_interval: 10s
+gocast_cleanup_timer: 15m
+gocast_log_level: 2
+gocast_origin: igp
+gocast_communities: []
+gocast_install_binary: false
+gocast_binary_src: files/gocast
+gocast_capabilities: true
+
+gocast_asn: 65010
+rs_asn: 65000
+gocast_local_ip: "{{ ansible_default_ipv4.address | default(ansible_host) }}"
+route_servers: []
+anycast_services: []
