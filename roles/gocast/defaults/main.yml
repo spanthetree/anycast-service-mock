@@ -3,6 +3,7 @@ gocast_user: gocast
 gocast_group: gocast
 gocast_binary: /usr/local/bin/gocast
 gocast_config_dir: /etc/gocast
+gocast_listen_addr: ":8080"
 gocast_monitor_interval: 10s
 gocast_cleanup_timer: 15m
 gocast_log_level: 2

@@ -11,7 +11,7 @@
     - ../roles/syslog/defaults/main.yml
     - ../inventories/example/group_vars/all/anycast.yml
   tasks:
-    - name: Derive local agent IP and subscribed services the same way the dns/syslog roles do
+    - name: Derive local agent IP and subscribed anycast services
       ansible.builtin.set_fact:
         gocast_local_ip: "{{ hostvars['dns01.example.net'].ansible_host }}"
         anycast_services: >-
@@ -46,12 +46,11 @@
         - "{{ playbook_dir }}/generated/gocast"
         - "{{ playbook_dir }}/generated/routeserver"
 
-    - name: Render GoCast config for each route-server peer
+    - name: Render GoCast agent config peering with every route server
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../roles/gocast/templates/gocast.yaml.j2"
-        dest: "{{ playbook_dir }}/generated/gocast/gocast-{{ item.name }}.yaml"
+        dest: "{{ playbook_dir }}/generated/gocast/gocast.yaml"
         mode: "0644"
-      loop: "{{ route_servers }}"
 
     - name: Render GoBGP route-server config for each route server
       ansible.builtin.template:

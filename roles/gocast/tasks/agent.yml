@@ -27,58 +27,39 @@
     owner: root
     group: root
     mode: "0755"
-  notify: Restart GoCast instances
+  notify: Restart GoCast
   when: gocast_install_binary | bool
 
-- name: Register GoCast instances from route-server map
-  ansible.builtin.set_fact:
-    gocast_instances: "{{ route_servers }}"
-
-- name: Validate route-server peers for GoCast instances
+- name: Validate route-server peers for GoCast
   ansible.builtin.assert:
     that:
-      - gocast_instances | length > 0
+      - route_servers | length > 0
       - item.name is defined
       - item.peer_ip is defined or item.address is defined
-      - item.listen_addr is defined
-    fail_msg: "Each GoCast instance needs name, listen_addr, and either address or peer_ip."
-  loop: "{{ gocast_instances }}"
+    fail_msg: "Each route server needs a name and either address or peer_ip."
+  loop: "{{ route_servers }}"
 
-- name: Validate unique GoCast listen addresses
-  ansible.builtin.assert:
-    that:
-      - >-
-        gocast_instances
-        | map(attribute='listen_addr')
-        | unique
-        | list
-        | length == gocast_instances | length
-    fail_msg: "Each GoCast instance needs a unique listen_addr on the local host."
-
-- name: Render GoCast agent configuration for each route server
+- name: Render GoCast agent configuration
   ansible.builtin.template:
     src: gocast.yaml.j2
-    dest: "{{ gocast_config_dir }}/gocast-{{ item.name }}.yaml"
+    dest: "{{ gocast_config_dir }}/gocast.yaml"
     owner: root
     group: "{{ gocast_group }}"
     mode: "0640"
-  loop: "{{ gocast_instances }}"
-  notify: Restart GoCast instances
+  notify: Restart GoCast
 
-- name: Install GoCast systemd unit for each route server
+- name: Install GoCast systemd unit
   ansible.builtin.template:
     src: gocast.service.j2
-    dest: /etc/systemd/system/gocast-{{ item.name }}.service
+    dest: /etc/systemd/system/gocast.service
     owner: root
     group: root
     mode: "0644"
-  loop: "{{ gocast_instances }}"
-  notify: Restart GoCast instances
+  notify: Restart GoCast
 
-- name: Enable GoCast services
+- name: Enable GoCast service
   ansible.builtin.systemd:
-    name: "gocast-{{ item.name }}"
+    name: gocast
     enabled: true
     state: started
     daemon_reload: true
-  loop: "{{ gocast_instances }}"

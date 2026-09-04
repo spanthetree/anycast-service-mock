@@ -1,13 +1,16 @@
 agent:
-  listen_addr: "{{ item.listen_addr }}"
+  listen_addr: "{{ gocast_listen_addr }}"
   monitor_interval: "{{ gocast_monitor_interval }}"
   cleanup_timer: "{{ gocast_cleanup_timer }}"
 
 bgp:
   local_as: {{ gocast_asn }}
-  peer_as: {{ item.peer_as | default(rs_asn) }}
+  peer_as: {{ rs_asn }}
   local_ip: "{{ gocast_local_ip }}"
-  peer_ip: "{{ item.peer_ip | default(item.address) }}"
+  peer_ips:
+{% for rs in route_servers %}
+    - "{{ rs.peer_ip | default(rs.address) }}"
+{% endfor %}
   origin: "{{ gocast_origin }}"
 {% if gocast_communities | length > 0 %}
   communities:

@@ -1,5 +1,5 @@
 [Unit]
-Description=GoCast Anycast Agent for {{ item.name }}
+Description=GoCast Anycast Agent
 After=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
 Wants=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
 
@@ -7,7 +7,7 @@ Wants=network-online.target{% for service in anycast_services | default([]) if s
 Type=simple
 User={{ gocast_user }}
 Group={{ gocast_group }}
-ExecStart={{ gocast_binary }} -logtostderr -v={{ gocast_log_level }} -config {{ gocast_config_dir }}/gocast-{{ item.name }}.yaml
+ExecStart={{ gocast_binary }} -logtostderr -v={{ gocast_log_level }} -config {{ gocast_config_dir }}/gocast.yaml
 Restart=always
 RestartSec=5
 {% if gocast_capabilities | bool %}
