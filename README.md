@@ -1,6 +1,6 @@
 # Anycast Service Ansible Reconstruction
 
-This is a reconstructed Ansible repository for the Anycast-as-a-Service design discussed in the shared chat.
+This is a general reconstruction of the ansible roles and configs for 'Anycast-as-a-Service'.
 
 The important pattern is:
 
@@ -9,18 +9,17 @@ dns/syslog roles declare service subscription metadata
   -> gocast role consumes local anycast_services
   -> GoCast monitors subscribed local services
   -> healthy services advertise /32 VIPs
-  -> routeserver role deploys GoBGP route servers in each datacenter
-  -> route servers peer with agents and core switches
-  -> route servers forward permitted VIP routes into the datacenter network
+  -> routeserver role deploys 2x GoBGP route servers in each datacenter
+  -> route servers peer with agents _and_ core switches
+  -> route servers readvertise permitted VIP routes into the datacenter network
 ```
 
 ## Deployment Diagram
 
 ![Anycast deployment diagram](examples/assets/anycast-deployment.png)
 
-It is not intended to be the original historical source. It is a plausible role layout using conventional Ansible structure and a simple service metadata model: `anycast: true` plus `vip`.
 
-## Requirements Captured
+## Project Requirements
 
 - Improve DNS reliability by giving a pool of DNS servers a shared VIP that production servers and containers can place in `resolv.conf`.
 - Improve network-device Syslog reliability with a static VIP instead of a DNS name, since many network devices require literal IP targets.
@@ -43,8 +42,6 @@ It is not intended to be the original historical source. It is a plausible role 
     └── routeserver/
 ```
 
-`group_vars/all/anycast.yml` lives beside the inventory it belongs to (`inventories/example/group_vars/all/`), not at the repo root, so Ansible auto-loads it for every host in that inventory without any explicit `vars_files` in `playbooks/site.yml`. A repo-root `group_vars/` is only auto-loaded when the inventory file itself lives at the repo root. With a nested inventory like this one it is silently ignored, which previously left `route_servers`, ASNs, and prefixes undefined for real playbook runs.
-
 ## Role Responsibilities
 
 `dns`
@@ -54,7 +51,7 @@ It is not intended to be the original historical source. It is a plausible role 
 : Installs/configures rsyslog and registers Syslog with `anycast_services` when `syslog.anycast` is enabled.
 
 `gocast`
-: Installs/renders the GoCast BGP agent on application hosts. Public upstream GoCast (`mayuresh82/gocast`) only accepts a single `peer_ip`/`peer_as` pair in its BGP config, one peer per process. This reconstruction targets a patched fork that accepts a `peer_ips` list instead, so this role runs a single `gocast.service` per host that peers with every route server at once. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.
+: Installs/renders the GoCast agent on application hosts. Public upstream GoCast requires patching to enanble multi-peering from the agents, which allows for running a single agent per server that peers with both route servers. This reconstruction assumes the patch is available, to accepts a `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.
 
 ```yaml
 bgp:
