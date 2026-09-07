@@ -45,10 +45,10 @@ dns/syslog roles declare service subscription metadata
 ## Role Responsibilities
 
 `dns`
-: Installs/configures a DNS service and registers DNS with the host-local `anycast_services` list when `dns.anycast` is enabled.
+: Installs/configures a DNS service and registers DNS with the host-local `anycast_services` list when `dns.anycast` is enabled. Its monitor defaults to `exec`, not a plain port check: `dns_check.sh.j2` renders to `dns_check_script` (`/usr/local/lib/gocast-checks/dns_check.sh` by default) and checks that `dns.service_name` is active, then resolves each domain in `dns_check_domains` against `127.0.0.1` with `dig`, failing (and so withdrawing the VIP) if the service is down or any resolution fails. `named.conf.options.j2` sets `recursion yes` (`dns.recursion`, default `true`). A pool meant to sit in clients' `resolv.conf` has to actually resolve arbitrary names, and the healthcheck domains would never succeed against a non-recursive server. `dns_check_package` (default `dnsutils`) installs `dig` only when the exec monitor is in use.
 
 `syslog`
-: Installs/configures rsyslog and registers Syslog with `anycast_services` when `syslog.anycast` is enabled.
+: Installs/configures rsyslog and registers Syslog with `anycast_services` when `syslog.anycast` is enabled. Its monitor is a plain UDP port check on 514. Syslog just needs to be listening; there's no equivalent "resolve a few real records" check to run.
 
 `gocast`
 : Installs/renders the GoCast agent on application hosts. Public upstream GoCast requires patching to enanble multi-peering from the agents, which allows for running a single agent per server that peers with both route servers. This reconstruction assumes the patch is available, to accepts a `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.

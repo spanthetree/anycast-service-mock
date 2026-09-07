@@ -4,6 +4,12 @@
     name: "{{ dns.package }}"
     state: present
 
+- name: Install DNS healthcheck dependencies
+  ansible.builtin.package:
+    name: "{{ dns_check_package }}"
+    state: present
+  when: dns.monitor.type == 'exec'
+
 - name: Ensure DNS configuration directory exists
   ansible.builtin.file:
     path: "{{ dns.config_dir }}"
@@ -20,6 +26,24 @@
     group: root
     mode: "0644"
   notify: Restart DNS
+
+- name: Ensure DNS healthcheck script directory exists
+  ansible.builtin.file:
+    path: "{{ dns_check_script_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: dns.monitor.type == 'exec'
+
+- name: Render DNS healthcheck script
+  ansible.builtin.template:
+    src: dns_check.sh.j2
+    dest: "{{ dns_check_script }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: dns.monitor.type == 'exec'
 
 - name: Enable DNS service
   ansible.builtin.service:

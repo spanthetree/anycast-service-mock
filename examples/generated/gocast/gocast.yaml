@@ -16,7 +16,7 @@ apps:
   - name: "dns"
     vip: "10.20.0.53/32"
     monitors:
-      - "port:udp:53"
+      - "exec:/usr/local/lib/gocast-checks/dns_check.sh"
   - name: "syslog"
     vip: "10.20.0.54/32"
     monitors:

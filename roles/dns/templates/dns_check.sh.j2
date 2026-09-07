@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -u
+
+systemctl is-active --quiet {{ dns.service_name }} || exit 1
+
+{% for domain in dns_check_domains %}
+dig +short +time=2 +tries=1 @127.0.0.1 -p {{ dns.port }} {{ domain }} > /dev/null || exit 1
+{% endfor %}
+
+exit 0

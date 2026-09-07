@@ -1,4 +1,11 @@
 ---
+dns_check_script_dir: /usr/local/lib/gocast-checks
+dns_check_script: "{{ dns_check_script_dir }}/dns_check.sh"
+dns_check_package: dnsutils
+dns_check_domains:
+  - example.com
+  - example.net
+
 dns:
   package: bind9
   service_name: bind9
@@ -9,6 +16,7 @@ dns:
   zones: []
   anycast: true
   vip: 10.20.0.53/32
+  recursion: true
   monitor:
-    type: udp
-    port: 53
+    type: exec
+    command: "{{ dns_check_script }}"
