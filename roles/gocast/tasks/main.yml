@@ -1,3 +1,32 @@
 ---
+- name: Determine qualifying anycast services for this host
+  ansible.builtin.set_fact:
+    gocast_qualifying_services: >-
+      {{
+        anycast_services | default([])
+        | selectattr('anycast', 'defined') | selectattr('anycast')
+        | selectattr('vip', 'defined') | selectattr('vip')
+        | selectattr('monitor', 'defined') | selectattr('monitor')
+        | list
+      }}
+
+- name: Validate anycast-enabled services have vip and monitor set
+  ansible.builtin.assert:
+    that:
+      - item.vip is defined and item.vip
+      - item.monitor is defined and item.monitor
+    fail_msg: >-
+      Anycast service '{{ item.name }}' has anycast enabled but is missing
+      vip or monitor; it will be silently excluded from the GoCast config.
+  loop: >-
+    {{
+      anycast_services | default([])
+      | selectattr('anycast', 'defined') | selectattr('anycast')
+      | list
+    }}
+  loop_control:
+    label: "{{ item.name | default('unnamed service') }}"
+
 - name: Configure GoCast agent
   ansible.builtin.include_tasks: agent.yml
+  when: gocast_qualifying_services | length > 0

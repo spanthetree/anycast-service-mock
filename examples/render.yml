@@ -52,6 +52,12 @@
         dest: "{{ playbook_dir }}/generated/gocast/gocast.yaml"
         mode: "0644"
 
+    - name: Render GoCast systemd unit
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/gocast/templates/gocast.service.j2"
+        dest: "{{ playbook_dir }}/generated/gocast/gocast.service"
+        mode: "0644"
+
     - name: Render GoBGP route-server config for each route server
       ansible.builtin.template:
         src: "{{ playbook_dir }}/../roles/routeserver/templates/gobgpd.conf.j2"
@@ -60,3 +66,9 @@
       vars:
         routeserver_router_id: "{{ item.address }}"
       loop: "{{ route_servers }}"
+
+    - name: Render GoBGP route-server systemd unit
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/routeserver/templates/gobgpd.service.j2"
+        dest: "{{ playbook_dir }}/generated/routeserver/gobgpd.service"
+        mode: "0644"

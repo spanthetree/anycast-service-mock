@@ -1,0 +1,16 @@
+[Unit]
+Description=GoBGP Anycast Route Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gobgp
+Group=gobgp
+ExecStart=/usr/bin/gobgpd -f /etc/gobgp/gobgpd.conf
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

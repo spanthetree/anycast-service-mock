@@ -51,7 +51,7 @@ dns/syslog roles declare service subscription metadata
 : Installs/configures rsyslog and registers Syslog with `anycast_services` when `syslog.anycast` is enabled. Its monitor is a plain UDP port check on 514. Syslog just needs to be listening; there's no equivalent "resolve a few real records" check to run.
 
 `gocast`
-: Installs/renders the GoCast agent on application hosts. Public upstream GoCast requires patching to enanble multi-peering from the agents, which allows for running a single agent per server that peers with both route servers. This reconstruction assumes the patch is available, to accepts a `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.
+: Installs/renders the GoCast agent on application hosts. Public upstream GoCast requires patching to enable multi-peering from the agents, which allows for running a single agent per server that peers with both route servers. This reconstruction assumes the patch is available, to accepts a `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.
 
 ```yaml
 bgp:
@@ -123,13 +123,17 @@ ANSIBLE_HOME=/tmp/ansible-home \
 ansible-playbook examples/render.yml
 ```
 
-Generated examples:
+Every template in `roles/gocast/templates/` and `roles/routeserver/templates/` gets a rendered example, not just the config files:
 
 ```text
 examples/generated/gocast/gocast.yaml
+examples/generated/gocast/gocast.service
 examples/generated/routeserver/gobgpd-rs01.conf
 examples/generated/routeserver/gobgpd-rs02.conf
+examples/generated/routeserver/gobgpd.service
 ```
+
+`gobgpd.service.j2` renders once, not once per route server. Unlike `gobgpd.conf.j2` (which differs per route server by `router-id`), the systemd unit has no per-instance content, so a `gobgpd-rs01.service`/`gobgpd-rs02.service` split would just be two identical files.
 
 Syntax check:
 

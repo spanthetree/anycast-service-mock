@@ -1,7 +1,7 @@
 [Unit]
 Description=GoCast Anycast Agent
-After=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
-Wants=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
+After=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.vip | default(false) and service.monitor is defined and service.monitor and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
+Wants=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.vip | default(false) and service.monitor is defined and service.monitor and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
 
 [Service]
 Type=simple

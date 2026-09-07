@@ -1,0 +1,16 @@
+[Unit]
+Description=GoCast Anycast Agent
+After=network-online.target bind9.service rsyslog.serviceWants=network-online.target bind9.service rsyslog.service
+[Service]
+Type=simple
+User=gocast
+Group=gocast
+ExecStart=/usr/local/bin/gocast -logtostderr -v=2 -config /etc/gocast/gocast.yaml
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

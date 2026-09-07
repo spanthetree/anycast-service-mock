@@ -21,7 +21,7 @@ bgp:
 
 apps:
 {% for service in anycast_services | default([]) %}
-{% if service.anycast | default(false) %}
+{% if service.anycast | default(false) and service.vip | default(false) and service.monitor is defined and service.monitor %}
   - name: "{{ service.name }}"
     vip: "{{ service.vip }}"
 {% if service.vip_config is defined %}

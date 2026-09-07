@@ -13,7 +13,6 @@ dns:
   listen_address: 0.0.0.0
   port: 53
   proto: udp
-  zones: []
   anycast: true
   vip: 10.20.0.53/32
   recursion: true

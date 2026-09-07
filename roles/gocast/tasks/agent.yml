@@ -30,10 +30,15 @@
   notify: Restart GoCast
   when: gocast_install_binary | bool
 
-- name: Validate route-server peers for GoCast
+- name: Validate at least one route-server peer is configured
   ansible.builtin.assert:
     that:
       - route_servers | length > 0
+    fail_msg: "route_servers must not be empty."
+
+- name: Validate route-server peer entries for GoCast
+  ansible.builtin.assert:
+    that:
       - item.name is defined
       - item.peer_ip is defined or item.address is defined
     fail_msg: "Each route server needs a name and either address or peer_ip."
