@@ -71,10 +71,8 @@ core_asn: 64512
 route_servers:
   - name: rs01
     address: 10.1.0.11
-    listen_addr: ":8081"
   - name: rs02
     address: 10.1.0.12
-    listen_addr: ":8082"
 ```
 
 ```text
@@ -98,7 +96,7 @@ Anycast subscription is not represented as an inventory group. It is introduced 
 
 ## GoCast Fork Changes Required
 
-Public upstream GoCast (`mayuresh82/gocast`) only supports a single BGP peer per process (`bgp.peer_ip`/`bgp.peer_as`, singular). The `peer_ips` list this reconstruction relies on comes from a fork patch, applied at `~/Software/git/gocast`, that adds multi-peer support:
+Public upstream GoCast (`mayuresh82/gocast`) only supports a single BGP peer per process (`bgp.peer_ip`/`bgp.peer_as`, singular). The `peer_ips` list this reconstruction relies on comes from a local fork patch that adds multi-peer support:
 
 `config/config.go`
 : `BgpConfig` gained `PeerIPs []string` (`yaml:"peer_ips"`). The old `PeerIP string` field still works for existing single-peer configs; if both are set, `PeerIP` is folded into the peer list. `PeerAS` stays a single int, every peer is expected to share one AS.

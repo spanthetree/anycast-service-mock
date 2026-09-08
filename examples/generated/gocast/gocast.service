@@ -1,6 +1,8 @@
 [Unit]
 Description=GoCast Anycast Agent
-After=network-online.target bind9.service rsyslog.serviceWants=network-online.target bind9.service rsyslog.service
+After=network-online.target bind9.service rsyslog.service
+Wants=network-online.target bind9.service rsyslog.service
+
 [Service]
 Type=simple
 User=gocast

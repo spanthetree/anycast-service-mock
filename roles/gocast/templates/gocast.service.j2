@@ -1,7 +1,8 @@
+{% set gocast_dependent_units = anycast_services | default([]) | selectattr('anycast', 'defined') | selectattr('anycast') | selectattr('vip', 'defined') | selectattr('vip') | selectattr('monitor', 'defined') | selectattr('monitor') | selectattr('service_unit', 'defined') | map(attribute='service_unit') | list %}
 [Unit]
 Description=GoCast Anycast Agent
-After=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.vip | default(false) and service.monitor is defined and service.monitor and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
-Wants=network-online.target{% for service in anycast_services | default([]) if service.anycast | default(false) and service.vip | default(false) and service.monitor is defined and service.monitor and service.service_unit is defined %} {{ service.service_unit }}{% endfor %}
+After=network-online.target{% for unit in gocast_dependent_units %} {{ unit }}{% endfor +%}
+Wants=network-online.target{% for unit in gocast_dependent_units %} {{ unit }}{% endfor +%}
 
 [Service]
 Type=simple

@@ -2,10 +2,8 @@
 route_servers:
   - name: rs01
     address: 10.1.0.11
-    listen_addr: ":8081"
   - name: rs02
     address: 10.1.0.12
-    listen_addr: ":8082"
 
 anycast_allowed_prefixes:
   - 10.20.0.0/24
