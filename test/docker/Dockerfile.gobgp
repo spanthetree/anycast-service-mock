@@ -1,0 +1,11 @@
+# GoBGP route servers and core switches. Same GoBGP version GoCast vendors,
+# so the route-server config is checked against the parser GoCast ships with.
+FROM golang:1.22-bookworm AS build
+ARG GOBGP_VERSION=v0.0.0-20211201041502-6248c576b118
+RUN GOBIN=/out go install github.com/osrg/gobgp/cmd/gobgpd@${GOBGP_VERSION} \
+ && GOBIN=/out go install github.com/osrg/gobgp/cmd/gobgp@${GOBGP_VERSION}
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/gobgpd /out/gobgp /usr/bin/

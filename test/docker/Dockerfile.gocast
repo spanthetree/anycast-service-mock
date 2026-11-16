@@ -1,0 +1,18 @@
+# GoCast agent, built from a git branch so any fork/PR head can be tested.
+FROM golang:1.22-bookworm AS build
+ARG GOCAST_REPO=https://github.com/spanthetree/gocast.git
+ARG GOCAST_REF=multi_peer_v2
+RUN git clone --depth 1 --branch "$GOCAST_REF" "$GOCAST_REPO" /src
+WORKDIR /src
+RUN CGO_ENABLED=0 go build -mod=vendor -o /gocast . && git rev-parse HEAD > /gocast.rev
+
+FROM debian:bookworm-slim
+# bash + iproute2: GoCast shells out to `ip` via bash. socat: stand-in services
+# for the port monitors. curl, jq: query the /info endpoint.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      bash iproute2 socat curl jq ca-certificates procps \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /gocast /usr/local/bin/gocast
+COPY --from=build /gocast.rev /gocast.rev
+COPY agent-entrypoint.sh /usr/local/bin/agent-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/agent-entrypoint.sh"]

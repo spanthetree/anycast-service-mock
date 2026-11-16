@@ -1,0 +1,99 @@
+# Anycast test environment, addressed like inventories/example:
+#   servers net 10.1.10.0/24: GoCast agents dns01 (.11), syslog01 (.21)
+#   core net    10.1.0.0/24:  route servers rs01 (.11), rs02 (.12),
+#                             core switches core01 (.1), core02 (.2)
+#   router (.254 on both) routes between them, so agent <-> route-server
+#   sessions are routed (multihop), as in the real deployment.
+# Configs come from render.yml (the real role templates). Run via run-test.sh.
+name: anycast-mock-test
+
+# Each image is built by one service (router, dns01); the others reuse it.
+x-gobgp: &gobgp
+  image: anycast-mock-test/gobgp
+  pull_policy: never
+  cap_add: [NET_ADMIN]
+
+x-agent: &agent
+  image: anycast-mock-test/gocast:${GOCAST_TAG:-multi_peer_v2}
+  pull_policy: never
+  cap_add: [NET_ADMIN, NET_RAW]
+  depends_on: [router, rs01, rs02]
+
+# nat-unprotected: Docker 28+ otherwise drops packets addressed to a
+# container IP that arrive from another bridge, which blocks the router.
+networks:
+  servers:
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat-unprotected
+    ipam:
+      config:
+        - subnet: 10.1.10.0/24
+          gateway: 10.1.10.250
+  core:
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat-unprotected
+    ipam:
+      config:
+        - subnet: 10.1.0.0/24
+          gateway: 10.1.0.250
+
+services:
+  router:
+    <<: *gobgp
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.gobgp
+    command: ["sleep", "infinity"]
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    networks:
+      servers: { ipv4_address: 10.1.10.254 }
+      core: { ipv4_address: 10.1.0.254 }
+
+  rs01:
+    <<: *gobgp
+    command: ["sh", "-c", "ip route add 10.1.10.0/24 via 10.1.0.254 && exec gobgpd -p -f /etc/gobgp/gobgpd.conf"]
+    volumes: ["./generated/gobgpd-rs01.conf:/etc/gobgp/gobgpd.conf:ro"]
+    networks:
+      core: { ipv4_address: 10.1.0.11 }
+
+  rs02:
+    <<: *gobgp
+    command: ["sh", "-c", "ip route add 10.1.10.0/24 via 10.1.0.254 && exec gobgpd -p -f /etc/gobgp/gobgpd.conf"]
+    volumes: ["./generated/gobgpd-rs02.conf:/etc/gobgp/gobgpd.conf:ro"]
+    networks:
+      core: { ipv4_address: 10.1.0.12 }
+
+  core01:
+    <<: *gobgp
+    command: ["gobgpd", "-p", "-f", "/etc/gobgp/gobgpd.conf"]
+    volumes: ["./generated/gobgpd-core01.conf:/etc/gobgp/gobgpd.conf:ro"]
+    networks:
+      core: { ipv4_address: 10.1.0.1 }
+
+  core02:
+    <<: *gobgp
+    command: ["gobgpd", "-p", "-f", "/etc/gobgp/gobgpd.conf"]
+    volumes: ["./generated/gobgpd-core02.conf:/etc/gobgp/gobgpd.conf:ro"]
+    networks:
+      core: { ipv4_address: 10.1.0.2 }
+
+  dns01:
+    <<: *agent
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: Dockerfile.gocast
+      args:
+        GOCAST_REPO: ${GOCAST_REPO:-https://github.com/spanthetree/gocast.git}
+        GOCAST_REF: ${GOCAST_REF:-multi_peer_v2}
+    volumes: ["./generated/gocast-dns01.yaml:/etc/gocast/gocast.yaml:ro"]
+    networks:
+      servers: { ipv4_address: 10.1.10.11 }
+
+  syslog01:
+    <<: *agent
+    volumes: ["./generated/gocast-syslog01.yaml:/etc/gocast/gocast.yaml:ro"]
+    networks:
+      servers: { ipv4_address: 10.1.10.21 }

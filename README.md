@@ -35,11 +35,12 @@ dns/syslog roles declare service subscription metadata
 ├── inventories/example/hosts.yml
 ├── inventories/example/group_vars/all/anycast.yml
 ├── playbooks/site.yml
-└── roles/
-    ├── dns/
-    ├── syslog/
-    ├── gocast/
-    └── routeserver/
+├── roles/
+│   ├── dns/
+│   ├── syslog/
+│   ├── gocast/
+│   └── routeserver/
+└── test/docker/
 ```
 
 ## Role Responsibilities
@@ -150,3 +151,25 @@ ansible-playbook -i inventories/example/hosts.yml playbooks/site.yml --check --d
 ```
 
 The example inventory uses local connection and placeholder package names. Adjust package names, binary deployment, ASNs, and peer addresses for the target OS/network.
+
+## Docker Test Environment
+
+`test/docker/` runs the whole design in containers, addressed like the example inventory: GoCast agents `dns01` and `syslog01`, route servers `rs01`/`rs02`, core switches `core01`/`core02`, and a router between the server and core subnets, so agent sessions are routed eBGP multihop as in the real deployment. Configs are rendered from the real role templates by `test/docker/render.yml`. GoCast is built from a git branch; route servers and core switches run the GoBGP version GoCast vendors.
+
+```bash
+test/docker/run-test.sh                  # GoCast from spanthetree/gocast multi_peer_v2
+GOCAST_REF=other_branch test/docker/run-test.sh
+KEEP=1 test/docker/run-test.sh           # leave the containers running afterwards
+```
+
+It runs this test plan and writes a Markdown report plus full container logs to `test/docker/results/<timestamp>/`, exiting non-zero if any check fails:
+
+1. Both agents establish BGP with both route servers, and the route servers with both core switches.
+2. Both VIPs reach both route servers from both agents, and both core switches.
+3. Stopping the syslog service on `dns01` withdraws only `dns01`'s syslog route.
+4. Restarting it re-announces the route.
+5. With `rs01` stopped, the agents keep announcing via `rs02` and the core switches keep the VIPs via `rs02`.
+6. With `rs01` started again, its sessions and routes come back.
+7. Stopping `dns01` (SIGTERM) shuts its sessions down cleanly and withdraws its routes; `syslog01`'s stay.
+
+Requires Docker with Compose v2, and Ansible for rendering. The test networks use Docker's `nat-unprotected` gateway mode, because Docker 28+ otherwise drops packets routed between bridges to a container IP. Differences from a real host: both agents run both services; the services are `socat` UDP listeners, monitored by UDP port checks (the DNS role's `exec` check needs bind9 and systemd); and GoCast runs as root in its container.
