@@ -12,7 +12,13 @@ gocast_asn: 65010
 core_asn: 64512
 
 core_peers: []
+# core switches this route server peers with: its route_servers entry's
+# core_peers if set (one corresponding core switch each), else all core_peers
+routeserver_core_peers: "{{ (route_servers | default([]) | selectattr('address', 'equalto', routeserver_router_id) | map(attribute='core_peers') | first) | default(core_peers, true) }}"
 agent_neighbor_prefixes: []
 anycast_allowed_prefixes: []
 
+# send the core every agent's path (BGP add-paths), so it can ECMP across all
+# healthy anycast nodes; the core switches must accept add-paths
 routeserver_multipath_enabled: true
+routeserver_add_paths_max: 8

@@ -1,0 +1,28 @@
+{# Stand-in core switch (FRR). Peers with its corresponding route server(s)
+   and iBGP with the other core switches, installs BGP routes in the kernel
+   and forwards traffic, ECMP across all healthy anycast nodes. #}
+frr defaults traditional
+hostname {{ core_name }}
+log stdout informational
+!
+router bgp {{ core_asn }}
+ bgp router-id {{ core_ip }}
+ no bgp ebgp-requires-policy
+{% for rs in route_servers if core_ip in (rs.core_peers | default(core_peers)) %}
+ neighbor {{ rs.address }} remote-as {{ rs_asn }}
+ ! transparent route server: the first AS in the path is the agent's, not rs_asn
+ no neighbor {{ rs.address }} enforce-first-as
+{% endfor %}
+{% for other in core_peers if other != core_ip %}
+ neighbor {{ other }} remote-as {{ core_asn }}
+{% endfor %}
+ !
+ address-family ipv4 unicast
+  maximum-paths 8
+  maximum-paths ibgp 8
+{% for other in core_peers if other != core_ip %}
+  ! pass every agent path to the other core switch, so it can fail over to them
+  neighbor {{ other }} addpath-tx-all-paths
+{% endfor %}
+ exit-address-family
+!

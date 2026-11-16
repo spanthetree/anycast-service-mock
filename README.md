@@ -10,8 +10,10 @@ dns/syslog roles declare service subscription metadata
   -> GoCast monitors subscribed local services
   -> healthy services advertise /32 VIPs
   -> routeserver role deploys 2x GoBGP route servers in each datacenter
-  -> route servers peer with agents _and_ core switches
-  -> route servers readvertise permitted VIP routes into the datacenter network
+  -> route servers peer with agents _and_ their corresponding core switch
+  -> route servers pass permitted VIP routes to the core unchanged
+     (next hop stays the agent, every agent's path via add-paths)
+  -> core switches ECMP VIP traffic straight to every healthy agent
 ```
 
 ## Deployment Diagram
@@ -83,7 +85,10 @@ gocast.service -> /etc/gocast/gocast.yaml -> peer_ips [10.1.0.11, 10.1.0.12]
 One instance, one `anycast_services` subscription list, one BGP session to every route server. GoCast's embedded GoBGP speaker advertises each announced VIP to all of its established peers, so no per-peer duplication is needed on the agent side. The systemd unit is ordered after the subscribed service units declared by the service roles.
 
 `routeserver`
-: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents on one side and core switches on the other, then export only approved Anycast VIP prefixes into the datacenter network with ECMP (`[global.use-multiple-paths.config] enabled = true`, toggled by `routeserver_multipath_enabled`, default `true`), so the core switch load-balances across every healthy anycast node instead of taking a single best path. The `ANYCAST_AGENTS` peer group enables `ebgp-multihop` whenever `gocast_asn` differs from `rs_asn`: agents sit on other subnets than the route servers, and GoCast enables multihop on its side for eBGP peers by default.
+: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents (the `ANYCAST_AGENTS` dynamic-neighbor group) on one side, and with their corresponding core switch on the other: each `route_servers` entry's `core_peers` (rs01 → core01, rs02 → core02 in the example), or every `core_peers` entry if it has none. Only approved Anycast VIP prefixes (`anycast_allowed_prefixes`) are accepted from agents and passed to the core; nothing is accepted from the core or sent to agents.
+: The route servers are control plane only, as in the diagram: VIP traffic goes from the core switch straight to the agents, never through a route server. So agents and core switches are all route-server clients (`route-server-client = true`): the route server passes each agent's route on unchanged, with the agent as next hop and without prepending `rs_asn`. With `routeserver_multipath_enabled` (default `true`) it also sends every agent's path rather than only its best one (BGP add-paths, up to `routeserver_add_paths_max`, default 8), so the core switch can ECMP across every healthy anycast node.
+: The `ANYCAST_AGENTS` peer group enables `ebgp-multihop` whenever `gocast_asn` differs from `rs_asn`: agents sit on other subnets than the route servers, and GoCast enables multihop on its side for eBGP peers by default.
+: Core switch requirements (configured outside this repo): accept add-paths from the route servers, ECMP across them (`maximum-paths`), and don't enforce the neighbor's AS as first in the AS path, since it is the agent's. The core switches should iBGP with each other, passing all paths (`addpath-tx-all-paths` in FRR), so a core switch whose route server is down still reaches every agent. `test/docker/frr.conf.j2` is a working FRR example.
 
 The example inventory intentionally uses ordinary pre-existing groups:
 
@@ -111,7 +116,7 @@ Announce/withdraw
 `/info` and shutdown
 : `/info` returns a JSON list with one entry per configured peer, instead of one object. `Shutdown()` shuts down only the peers GoBGP knows about, and always stops the local BGP server.
 
-Validated end-to-end in Linux network namespaces, using only the files this repo renders: the `multi_peer_v2` `gocast` binary ran with `examples/generated/gocast/gocast.yaml` in an agent namespace (`10.1.10.11`), and real `gobgpd` (the GoBGP version GoCast vendors) ran with `examples/generated/routeserver/gobgpd-rs01.conf` and `gobgpd-rs02.conf` in two more namespaces (`10.1.0.11`, `10.1.0.12`), each joined to the agent by a veth link. Both route servers accepted the agent through the `ANYCAST_AGENTS` dynamic-neighbor group and reached Established. Both had `10.20.0.54/32` (syslog) in their RIB with next hop `10.1.10.11` while its port check passed, and dropped it once the check failed. GoCast exited cleanly on `SIGTERM`. Not covered by that test: the `dns` app (its check script was not installed), export to the core switches (none were running), and the multihop TTL path (the veth links are directly connected).
+Validated end-to-end with the [Docker Test Environment](#docker-test-environment) below.
 
 ## Example Run
 
@@ -154,7 +159,9 @@ The example inventory uses local connection and placeholder package names. Adjus
 
 ## Docker Test Environment
 
-`test/docker/` runs the whole design in containers, addressed like the example inventory: GoCast agents `dns01` and `syslog01`, route servers `rs01`/`rs02`, core switches `core01`/`core02`, and a router between the server and core subnets, so agent sessions are routed eBGP multihop as in the real deployment. Configs are rendered from the real role templates by `test/docker/render.yml`. GoCast is built from a git branch; route servers and core switches run the GoBGP version GoCast vendors.
+`test/docker/` runs the whole design from the diagram in containers, addressed like the example inventory: GoCast agents `dns01` and `syslog01`; route servers `rs01`/`rs02` (GoBGP, the version GoCast vendors); core switches `core01`/`core02` (FRR), which route between the server and core subnets, so agent sessions are routed eBGP multihop as in the real deployment; and a `client`, the diagram's "Server", which sends traffic to the VIPs through `core01`. Route-server and agent configs are rendered from the real role templates by `test/docker/render.yml`; the core switches use `test/docker/frr.conf.j2`. GoCast is built from a git branch.
+
+Each check waits for the expected state. Routes are checked where they matter: what each route server sends its core switch, and which next hops each core switch installed in its kernel. Traffic is checked with 20 UDP flows from the client to a VIP; the stand-in services answer with the node's name, so the report shows which nodes served them.
 
 ```bash
 test/docker/run-test.sh                  # GoCast from spanthetree/gocast multi_peer_v2
@@ -164,13 +171,13 @@ KEEP=1 test/docker/run-test.sh           # leave the containers running afterwar
 
 It runs this test plan and writes a Markdown report plus full container logs to `test/docker/results/<timestamp>/`, exiting non-zero if any check fails:
 
-1. Both agents establish BGP with both route servers, and the route servers with both core switches.
-2. Both VIPs reach both route servers from both agents, and both core switches.
-3. Stopping the syslog service on `dns01` withdraws only `dns01`'s syslog route.
-4. Restarting it re-announces the route.
-5. With `rs01` stopped, the agents keep announcing via `rs02` and the core switches keep the VIPs via `rs02`.
+1. Both agents establish BGP with both route servers; each route server with its core switch; the core switches with each other.
+2. Each route server sends its core switch both agents' paths for both VIPs, with next hop and AS path unchanged. Both core switches install both agents as ECMP next hops. A VIP outside `anycast_allowed_prefixes`, announced by `dns01`, is filtered. Traffic to each VIP reaches both nodes; the filtered VIP gets no answer.
+3. Stopping the syslog service on `dns01` withdraws only `dns01`'s syslog route; syslog traffic goes only to `syslog01`, none lost.
+4. Restarting it brings the route and traffic back to both nodes.
+5. With `rs01` stopped, `core01` keeps both agents as next hops via `core02` (iBGP), and traffic through `core01` still reaches both nodes.
 6. With `rs01` started again, its sessions and routes come back.
-7. Stopping `dns01` (SIGTERM) shuts its sessions down cleanly and withdraws its routes; `syslog01`'s stay.
-8. Only if the GoCast build reloads its config on SIGHUP: a reload with an unchanged config leaves BGP alone; with `peer_ips` reduced to `rs01` it moves `syslog01`'s session and routes off `rs02`; with the original config restored they come back.
+7. Stopping `dns01` (SIGTERM) shuts its sessions down cleanly; its routes disappear everywhere, and all traffic goes to `syslog01`, none lost.
+8. Only if the GoCast build reloads its config on SIGHUP: a reload with an unchanged config leaves BGP alone; with `peer_ips` reduced to `rs01`, `syslog01`'s session and routes move off `rs02` (`core02` keeps them via `core01`); with the original config restored they come back.
 
-Requires Docker with Compose v2, and Ansible for rendering. The test networks use Docker's `nat-unprotected` gateway mode, because Docker 28+ otherwise drops packets routed between bridges to a container IP. Differences from a real host: both agents run both services; the services are `socat` UDP listeners, monitored by UDP port checks (the DNS role's `exec` check needs bind9 and systemd); and GoCast runs as root in its container.
+Requires Docker with Compose v2, and Ansible for rendering. The FRR image is pulled from `quay.io/frrouting/frr`. The test networks use Docker's `nat-unprotected` gateway mode, because Docker 28+ otherwise drops packets routed between bridges to a container IP. Differences from a real host: both agents run both services; the services are `socat` UDP listeners, monitored by UDP port checks (the DNS role's `exec` check needs bind9 and systemd); and GoCast runs as root in its container.

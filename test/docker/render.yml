@@ -21,6 +21,14 @@
         test_agents:
           - name: dns01
             ip: "{{ hostvars['dns01.example.net'].ansible_host | default('10.1.10.11') }}"
+            # a VIP outside anycast_allowed_prefixes: the route servers must reject it
+            extra_services:
+              - name: rogue
+                port: 5353
+                proto: udp
+                vip: 10.99.0.1/32
+                anycast: true
+                monitor: { type: udp, port: 5353 }
           - name: syslog01
             ip: "{{ hostvars['syslog01.example.net'].ansible_host | default('10.1.10.21') }}"
         # Same shape the dns/syslog roles register. DNS uses a UDP port monitor
@@ -52,7 +60,7 @@
         mode: "0644"
       vars:
         gocast_local_ip: "{{ item.ip }}"
-        anycast_services: "{{ test_services }}"
+        anycast_services: "{{ test_services + item.extra_services | default([]) }}"
         gocast_monitor_interval: 5s
         gocast_communities: ["65010:100"]
       loop: "{{ test_agents }}"
@@ -66,11 +74,14 @@
         routeserver_router_id: "{{ item.address }}"
       loop: "{{ route_servers }}"
 
-    - name: Render core switch configs
+    - name: Render core switch (FRR) configs
       ansible.builtin.template:
-        src: core.conf.j2
-        dest: "{{ gen }}/gobgpd-core{{ '%02d' | format(idx + 1) }}.conf"
+        src: frr.conf.j2
+        dest: "{{ gen }}/frr-{{ core_name }}.conf"
         mode: "0644"
+      vars:
+        core_name: "core{{ '%02d' | format(idx + 1) }}"
+        core_ip: "{{ item }}"
       loop: "{{ core_peers }}"
       loop_control:
         index_var: idx

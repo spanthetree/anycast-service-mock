@@ -15,4 +15,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=build /gocast /usr/local/bin/gocast
 COPY --from=build /gocast.rev /gocast.rev
 COPY agent-entrypoint.sh /usr/local/bin/agent-entrypoint.sh
+COPY stand-in.sh /usr/local/bin/stand-in
 ENTRYPOINT ["/usr/local/bin/agent-entrypoint.sh"]

@@ -2,11 +2,6 @@
   as = {{ rs_asn }}
   router-id = "{{ routeserver_router_id }}"
 
-{% if routeserver_multipath_enabled | bool %}
-[global.use-multiple-paths.config]
-  enabled = true
-{% endif %}
-
 {% for prefix in anycast_allowed_prefixes %}
 [[defined-sets.prefix-sets]]
   prefix-set-name = "ANYCAST_VIPS_{{ loop.index }}"
@@ -40,13 +35,30 @@
     [policy-definitions.statements.actions]
       route-disposition = "reject-route"
 
-{% for peer in core_peers %}
+# Core switches and agents are all route-server clients: the route server
+# passes agent routes to the core unchanged (next hop stays the agent, rs_asn
+# is not prepended), so traffic goes core -> agent and never through here.
+# GoBGP only passes routes between route-server clients and other clients.
+{% for peer in routeserver_core_peers %}
 [[neighbors]]
   [neighbors.config]
     neighbor-address = "{{ peer }}"
     peer-as = {{ core_asn }}
 
+  [neighbors.route-server.config]
+    route-server-client = true
+{% if routeserver_multipath_enabled | bool %}
+
+  # send every agent's path, not only the best one, so the core switch can
+  # ECMP across all healthy anycast nodes
+  [neighbors.add-paths.config]
+    send-max = {{ routeserver_add_paths_max }}
+{% endif %}
+
+  # accept nothing from the core; send it only approved VIPs
   [neighbors.apply-policy.config]
+    import-policy-list = ["REJECT_OTHER_PREFIXES"]
+    default-import-policy = "reject-route"
     export-policy-list = ["ALLOW_ANYCAST_VIPS", "REJECT_OTHER_PREFIXES"]
     default-export-policy = "reject-route"
 {% endfor %}
@@ -62,6 +74,9 @@
   [peer-groups.config]
     peer-group-name = "ANYCAST_AGENTS"
     peer-as = {{ gocast_asn }}
+
+  [peer-groups.route-server.config]
+    route-server-client = true
 {% if gocast_asn | int != rs_asn | int %}
 
   # agents sit on other subnets, so eBGP sessions to them are multihop;
@@ -71,6 +86,9 @@
     multihop-ttl = 255
 {% endif %}
 
+  # accept only approved VIPs from agents; send them nothing
   [peer-groups.apply-policy.config]
     import-policy-list = ["ALLOW_ANYCAST_VIPS", "REJECT_OTHER_PREFIXES"]
     default-import-policy = "reject-route"
+    export-policy-list = ["REJECT_OTHER_PREFIXES"]
+    default-export-policy = "reject-route"

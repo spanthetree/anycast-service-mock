@@ -1,9 +1,12 @@
 ---
+# each route server feeds its corresponding core switch
 route_servers:
   - name: rs01
     address: 10.1.0.11
+    core_peers: [10.1.0.1]
   - name: rs02
     address: 10.1.0.12
+    core_peers: [10.1.0.2]
 
 anycast_allowed_prefixes:
   - 10.20.0.0/24

@@ -1,26 +1,40 @@
-# Anycast test environment, addressed like inventories/example:
-#   servers net 10.1.10.0/24: GoCast agents dns01 (.11), syslog01 (.21)
-#   core net    10.1.0.0/24:  route servers rs01 (.11), rs02 (.12),
-#                             core switches core01 (.1), core02 (.2)
-#   router (.254 on both) routes between them, so agent <-> route-server
-#   sessions are routed (multihop), as in the real deployment.
+# Anycast test environment, matching examples/assets/anycast-deployment.png
+# with the example inventory's addresses:
+#   servers net 10.1.10.0/24: GoCast agents dns01 (.11) and syslog01 (.21),
+#                             and client (.100), the "Server" using the VIPs
+#   core net    10.1.0.0/24:  route servers rs01 (.11) and rs02 (.12)
+#   core01/core02 (FRR) sit on both nets (.1/.2): each peers with its
+#   corresponding route server, iBGP with each other, installs the VIP routes
+#   and forwards client traffic straight to the agents (ECMP). core01 also
+#   routes the agent <-> route-server BGP sessions (eBGP multihop).
 # Configs come from render.yml (the real role templates). Run via run-test.sh.
 name: anycast-mock-test
 
-# Each image is built by one service (router, dns01); the others reuse it.
+# Each built image is built by one service (rs01, dns01); the others reuse it.
 x-gobgp: &gobgp
   image: anycast-mock-test/gobgp
   pull_policy: never
   cap_add: [NET_ADMIN]
+  command: ["sh", "-c", "ip route add 10.1.10.0/24 via 10.1.0.1 && exec gobgpd -p -f /etc/gobgp/gobgpd.conf"]
 
 x-agent: &agent
   image: anycast-mock-test/gocast:${GOCAST_TAG:-multi_peer_v2}
   pull_policy: never
   cap_add: [NET_ADMIN, NET_RAW]
-  depends_on: [router, rs01, rs02]
+  sysctls:
+    net.ipv4.ip_nonlocal_bind: "1"
+  depends_on: [core01, rs01, rs02]
+
+x-core: &core
+  image: quay.io/frrouting/frr:9.1.2
+  cap_add: [NET_ADMIN, NET_RAW, SYS_ADMIN]
+  sysctls:
+    net.ipv4.ip_forward: "1"
+    # hash on ports too, so one client's flows spread across all nodes
+    net.ipv4.fib_multipath_hash_policy: "1"
 
 # nat-unprotected: Docker 28+ otherwise drops packets addressed to a
-# container IP that arrive from another bridge, which blocks the router.
+# container IP that arrive from another bridge, which blocks routing.
 networks:
   servers:
     driver_opts:
@@ -38,49 +52,50 @@ networks:
           gateway: 10.1.0.250
 
 services:
-  router:
+  core01:
+    <<: *core
+    hostname: core01
+    volumes:
+      - ./frr-daemons:/etc/frr/daemons:ro
+      - ./frr-vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./generated/frr-core01.conf:/etc/frr/frr.conf:ro
+      - ./bin:/opt/test:ro
+    networks:
+      servers: { ipv4_address: 10.1.10.1 }
+      core: { ipv4_address: 10.1.0.1 }
+
+  core02:
+    <<: *core
+    hostname: core02
+    volumes:
+      - ./frr-daemons:/etc/frr/daemons:ro
+      - ./frr-vtysh.conf:/etc/frr/vtysh.conf:ro
+      - ./generated/frr-core02.conf:/etc/frr/frr.conf:ro
+      - ./bin:/opt/test:ro
+    networks:
+      servers: { ipv4_address: 10.1.10.2 }
+      core: { ipv4_address: 10.1.0.2 }
+
+  rs01:
     <<: *gobgp
     pull_policy: build
     build:
       context: .
       dockerfile: Dockerfile.gobgp
-    command: ["sleep", "infinity"]
-    sysctls:
-      net.ipv4.ip_forward: "1"
-    networks:
-      servers: { ipv4_address: 10.1.10.254 }
-      core: { ipv4_address: 10.1.0.254 }
-
-  rs01:
-    <<: *gobgp
-    command: ["sh", "-c", "ip route add 10.1.10.0/24 via 10.1.0.254 && exec gobgpd -p -f /etc/gobgp/gobgpd.conf"]
     volumes: ["./generated/gobgpd-rs01.conf:/etc/gobgp/gobgpd.conf:ro"]
     networks:
       core: { ipv4_address: 10.1.0.11 }
 
   rs02:
     <<: *gobgp
-    command: ["sh", "-c", "ip route add 10.1.10.0/24 via 10.1.0.254 && exec gobgpd -p -f /etc/gobgp/gobgpd.conf"]
     volumes: ["./generated/gobgpd-rs02.conf:/etc/gobgp/gobgpd.conf:ro"]
     networks:
       core: { ipv4_address: 10.1.0.12 }
-
-  core01:
-    <<: *gobgp
-    command: ["gobgpd", "-p", "-f", "/etc/gobgp/gobgpd.conf"]
-    volumes: ["./generated/gobgpd-core01.conf:/etc/gobgp/gobgpd.conf:ro"]
-    networks:
-      core: { ipv4_address: 10.1.0.1 }
-
-  core02:
-    <<: *gobgp
-    command: ["gobgpd", "-p", "-f", "/etc/gobgp/gobgpd.conf"]
-    volumes: ["./generated/gobgpd-core02.conf:/etc/gobgp/gobgpd.conf:ro"]
-    networks:
-      core: { ipv4_address: 10.1.0.2 }
+    depends_on: [rs01]
 
   dns01:
     <<: *agent
+    hostname: dns01
     pull_policy: build
     build:
       context: .
@@ -94,6 +109,19 @@ services:
 
   syslog01:
     <<: *agent
+    hostname: syslog01
     volumes: ["./generated/gocast-syslog01.yaml:/etc/gocast/gocast.yaml:ro"]
     networks:
       servers: { ipv4_address: 10.1.10.21 }
+    depends_on: [dns01]
+
+  # the diagram's "Server": reaches the VIPs through its core switch
+  client:
+    image: anycast-mock-test/gocast:${GOCAST_TAG:-multi_peer_v2}
+    pull_policy: never
+    hostname: client
+    cap_add: [NET_ADMIN]
+    entrypoint: ["sh", "-c", "ip route add 10.20.0.0/24 via 10.1.10.1 && ip route add 10.99.0.0/24 via 10.1.10.1 && exec sleep infinity"]
+    networks:
+      servers: { ipv4_address: 10.1.10.100 }
+    depends_on: [dns01]
