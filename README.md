@@ -51,7 +51,7 @@ dns/syslog roles declare service subscription metadata
 : Installs/configures rsyslog and registers Syslog with `anycast_services` when `syslog.anycast` is enabled. Its monitor is a plain UDP port check on 514. Syslog just needs to be listening; there's no equivalent "resolve a few real records" check to run.
 
 `gocast`
-: Installs/renders the GoCast agent on application hosts. Public upstream GoCast requires patching to enable multi-peering from the agents, which allows for running a single agent per server that peers with both route servers. This reconstruction assumes the patch is available, to accepts a `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for exactly what that patch needs to touch.
+: Installs/renders the GoCast agent on application hosts. Public upstream GoCast only peers with one BGP speaker, so this reconstruction needs the multi-peer GoCast build from the [`multi_peer_v2`](https://github.com/spanthetree/gocast/tree/multi_peer_v2) branch. It lets a single agent per server peer with both route servers, using the `peer_ips` list. See [GoCast Fork Changes Required](#gocast-fork-changes-required) below for what that branch changes.
 
 ```yaml
 bgp:
@@ -82,7 +82,7 @@ gocast.service -> /etc/gocast/gocast.yaml -> peer_ips [10.1.0.11, 10.1.0.12]
 One instance, one `anycast_services` subscription list, one BGP session to every route server. GoCast's embedded GoBGP speaker advertises each announced VIP to all of its established peers, so no per-peer duplication is needed on the agent side. The systemd unit is ordered after the subscribed service units declared by the service roles.
 
 `routeserver`
-: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents on one side and core switches on the other, then export only approved Anycast VIP prefixes into the datacenter network with ECMP (`[global.use-multiple-paths.config] enabled = true`, toggled by `routeserver_multipath_enabled`, default `true`), so the core switch load-balances across every healthy anycast node instead of taking a single best path.
+: Installs/renders the GoBGP route-server configuration in each datacenter. Route servers peer with Anycast agents on one side and core switches on the other, then export only approved Anycast VIP prefixes into the datacenter network with ECMP (`[global.use-multiple-paths.config] enabled = true`, toggled by `routeserver_multipath_enabled`, default `true`), so the core switch load-balances across every healthy anycast node instead of taking a single best path. The `ANYCAST_AGENTS` peer group enables `ebgp-multihop` whenever `gocast_asn` differs from `rs_asn`: agents sit on other subnets than the route servers, and GoCast enables multihop on its side for eBGP peers by default.
 
 The example inventory intentionally uses ordinary pre-existing groups:
 
@@ -96,17 +96,21 @@ Anycast subscription is not represented as an inventory group. It is introduced 
 
 ## GoCast Fork Changes Required
 
-Public upstream GoCast (`mayuresh82/gocast`) only supports a single BGP peer per process (`bgp.peer_ip`/`bgp.peer_as`, singular). The `peer_ips` list this reconstruction relies on comes from a local fork patch that adds multi-peer support:
+Public upstream GoCast (`mayuresh82/gocast`) only supports a single BGP peer per process (`bgp.peer_ip`/`bgp.peer_as`, singular). The `peer_ips` list this reconstruction relies on comes from the [`multi_peer_v2`](https://github.com/spanthetree/gocast/tree/multi_peer_v2) branch. It builds on upstream PR [#33](https://github.com/mayuresh82/gocast/pull/33) (multi-peer and BGP MD5 auth), plus fixes:
 
-`config/config.go`
-: `BgpConfig` gained `PeerIPs []string` (`yaml:"peer_ips"`). The old `PeerIP string` field still works for existing single-peer configs; if both are set, `PeerIP` is folded into the peer list. `PeerAS` stays a single int, every peer is expected to share one AS.
+Peer config (`config/config.go`, `controller/bgp.go`)
+: `peer_ip` (legacy, single), `peer_ips` (list of IPs) and `peers` (list of objects with optional per-peer `peer_as`, `multi_hop`, `md5_password`/`md5_env_var`) are merged into one peer list in that order, de-duplicated by IP. Peers without their own `peer_as` use the top-level `peer_as`. Invalid peer IPs fail at startup. The default gateway is used only if no peer is configured at all. This role only needs `peer_ips`, since both route servers share `rs_asn`.
 
-`controller/bgp.go`
-: `Controller.peerIP net.IP` became `peerIPs []net.IP`. `NewController` resolves the full peer list (falling back to the default gateway only if none is configured) and derives `localIP` from the first configured peer when `local_ip` isn't set explicitly. `Announce()` loops over `peerIPs` through a new `ensurePeers()` helper that adds any configured peer not yet an established GoBGP neighbor. `PeerInfo()` now returns `[]*api.Peer` (all configured peers) instead of a single `*api.Peer`, which also changes `MonitorMgr.GetInfo()` and the `/info` HTTP endpoint's response shape from one object to a list.
-: `AddPath` itself was left untouched; it already announces from GoBGP's RIB to every established peer rather than to one targeted neighbor, so a single unified `Announce()` call reaches all configured peers once they're added as neighbors. There's no way to target a route at one specific peer, `AddPathRequest` has no such field, and none is needed here.
-: `Shutdown()` also had to change beyond just looping. The original single-peer version called `ShutdownPeer` unconditionally and returned on error, so it never reached `StopBgp()` if that one peer hadn't been added yet (eg. no route was ever announced before shutdown). Looping that unchanged over multiple peers made the failure more likely, not less, since any one not-yet-established peer would still abort the whole shutdown. The fixed version lists established peers first, only asks GoBGP to shut down the ones actually present, and always calls `StopBgp()` regardless of individual peer errors.
+Multihop
+: Enabled by default for eBGP peers (`peer_as` differs from `local_as`), as in single-peer upstream GoCast. `multi_hop` on a `peers` entry overrides it. The agents here are eBGP and on other subnets than the route servers, so they need it; the route-server side matches it in the `ANYCAST_AGENTS` peer group.
 
-Validated end-to-end against the real patched binary, not just checked for valid YAML: the rendered `gocast.yaml` was parsed with the actual `config.GetConfig()`, run through `NewController`/`PeerInfo`/`Shutdown`, and the compiled `gocast` binary was started against it directly. It registered both `dns` and `syslog` apps correctly and shut down cleanly on `SIGTERM` with no panic.
+Announce/withdraw
+: Missing peers are added to GoBGP on the first announce. The VIP path is then added to (or removed from) GoBGP's RIB once, and GoBGP sends it to every established peer. A peer that fails to add does not block the announcement to the rest. Communities are global plus per-VIP only; per-peer communities are not supported, because GoBGP keeps one local path per prefix.
+
+`/info` and shutdown
+: `/info` returns a JSON list with one entry per configured peer, instead of one object. `Shutdown()` shuts down only the peers GoBGP knows about, and always stops the local BGP server.
+
+Validated end-to-end in Linux network namespaces, using only the files this repo renders: the `multi_peer_v2` `gocast` binary ran with `examples/generated/gocast/gocast.yaml` in an agent namespace (`10.1.10.11`), and real `gobgpd` (the GoBGP version GoCast vendors) ran with `examples/generated/routeserver/gobgpd-rs01.conf` and `gobgpd-rs02.conf` in two more namespaces (`10.1.0.11`, `10.1.0.12`), each joined to the agent by a veth link. Both route servers accepted the agent through the `ANYCAST_AGENTS` dynamic-neighbor group and reached Established. Both had `10.20.0.54/32` (syslog) in their RIB with next hop `10.1.10.11` while its port check passed, and dropped it once the check failed. GoCast exited cleanly on `SIGTERM`. Not covered by that test: the `dns` app (its check script was not installed), export to the core switches (none were running), and the multihop TTL path (the veth links are directly connected).
 
 ## Example Run
 

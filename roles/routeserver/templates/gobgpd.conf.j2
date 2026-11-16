@@ -23,7 +23,7 @@
   [[policy-definitions.statements]]
     name = "allow-anycast-vips-{{ loop.index }}"
 
-    [policy-definitions.statements.conditions.match-prefix-set.config]
+    [policy-definitions.statements.conditions.match-prefix-set]
       prefix-set = "ANYCAST_VIPS_{{ loop.index }}"
       match-set-options = "any"
 
@@ -62,6 +62,14 @@
   [peer-groups.config]
     peer-group-name = "ANYCAST_AGENTS"
     peer-as = {{ gocast_asn }}
+{% if gocast_asn | int != rs_asn | int %}
+
+  # agents sit on other subnets, so eBGP sessions to them are multihop;
+  # GoCast enables multihop on its side for eBGP peers by default too
+  [peer-groups.ebgp-multihop.config]
+    enabled = true
+    multihop-ttl = 255
+{% endif %}
 
   [peer-groups.apply-policy.config]
     import-policy-list = ["ALLOW_ANYCAST_VIPS", "REJECT_OTHER_PREFIXES"]
