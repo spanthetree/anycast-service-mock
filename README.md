@@ -171,5 +171,6 @@ It runs this test plan and writes a Markdown report plus full container logs to 
 5. With `rs01` stopped, the agents keep announcing via `rs02` and the core switches keep the VIPs via `rs02`.
 6. With `rs01` started again, its sessions and routes come back.
 7. Stopping `dns01` (SIGTERM) shuts its sessions down cleanly and withdraws its routes; `syslog01`'s stay.
+8. Only if the GoCast build reloads its config on SIGHUP: a reload with an unchanged config leaves BGP alone; with `peer_ips` reduced to `rs01` it moves `syslog01`'s session and routes off `rs02`; with the original config restored they come back.
 
 Requires Docker with Compose v2, and Ansible for rendering. The test networks use Docker's `nat-unprotected` gateway mode, because Docker 28+ otherwise drops packets routed between bridges to a container IP. Differences from a real host: both agents run both services; the services are `socat` UDP listeners, monitored by UDP port checks (the DNS role's `exec` check needs bind9 and systemd); and GoCast runs as root in its container.

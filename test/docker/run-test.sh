@@ -21,6 +21,10 @@
 #   6. Starting rs01 again: sessions re-establish and routes return via rs01.
 #   7. Stopping dns01 (SIGTERM): it shuts down its sessions cleanly and its
 #      routes are withdrawn from both route servers; syslog01's stay.
+#   8. Only if the GoCast build reloads config on SIGHUP: reloading
+#      syslog01 with an unchanged config leaves BGP alone; with peer_ips
+#      reduced to rs01 it moves its sessions and routes off rs02; with the
+#      original config restored they come back.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -35,7 +39,10 @@ PASSED=0
 FAILED=0
 
 dc() { docker compose "$@"; }
-in_svc() { dc exec -T "$1" bash -c "$2" 2>&1 || true; }
+# in_svc <service|host> <command>: run in a container, or on the host for "host"
+in_svc() {
+  if [ "$1" = host ]; then bash -c "$2" 2>&1 || true; else dc exec -T "$1" bash -c "$2" 2>&1 || true; fi
+}
 say() { echo "$*" | tee -a "$REPORT"; }
 
 # block <service> <command>: append a command and its output to the report
@@ -187,6 +194,47 @@ for rs in rs01 rs02; do
     "$(hasnt $DNS_VIP $DNS01) && $(hasnt $SYS_VIP $DNS01) && $(has $DNS_VIP $SYSLOG01) && $(has $SYS_VIP $SYSLOG01)"
 done
 { echo; echo "dns01 log, shutdown:"; echo '```'; dc logs --no-log-prefix dns01 2>&1 | sed -n '/Shutting down all open bgp sessions/,$p'; echo '```'; } >>"$REPORT"
+
+# Step 8 runs only if this GoCast build reloads its config on SIGHUP.
+if [ "$(in_svc syslog01 "grep -ac 'reloading configuration' /usr/local/bin/gocast")" != 0 ]; then
+  CFG=generated/gocast-syslog01.yaml
+  ORIG=$(cat "$CFG")
+  # rewrite in place (the file is bind-mounted, so its inode must not change), then SIGHUP
+  # sleep 1: `logs --since` has 1s resolution; keep each reload's log window separate
+  reload() { sleep 1; cat >"$CFG"; export MARK=$(date -u +%Y-%m-%dT%H:%M:%SZ); dc kill -s HUP syslog01 >/dev/null 2>&1; }
+  LOGS='docker compose logs --no-log-prefix --since $MARK syslog01'
+
+  say ""
+  say "## 8. Config reload (SIGHUP) on syslog01"
+  say "- SIGHUP with the config unchanged."
+  reload <<<"$ORIG"
+  expect "syslog01 reloads without restarting BGP" 15 host "$LOGS" \
+    "g 'Configuration reloaded successfully' && ! g 'BGP configuration changed'"
+  for rs in rs01 rs02; do
+    expect "$rs keeps syslog01's session and both VIPs" 5 $rs "$RIB; echo; $NBR" \
+      "$(has $DNS_VIP $SYSLOG01) && $(has $SYS_VIP $SYSLOG01) && g '^$SYSLOG01 .*Establ'"
+  done
+
+  say "- SIGHUP with peer_ips reduced to rs01."
+  reload <<<"$(grep -v '"10.1.0.12"' <<<"$ORIG")"
+  expect "syslog01 restarts BGP with the new peer list" 15 host "$LOGS" \
+    "g 'BGP configuration changed' && g 'Configuration reloaded successfully'"
+  expect "rs02 no longer has syslog01's session or routes" 30 rs02 "$RIB; echo; $NBR" \
+    "$(hasnt $DNS_VIP $SYSLOG01) && $(hasnt $SYS_VIP $SYSLOG01) && ! g '^$SYSLOG01 '"
+  expect "rs01 has syslog01's session and both VIPs" 60 rs01 "$RIB; echo; $NBR" \
+    "$(has $DNS_VIP $SYSLOG01) && $(has $SYS_VIP $SYSLOG01) && g '^$SYSLOG01 .*Establ'"
+  { echo; echo "syslog01 log:"; echo '```'; in_svc host "$LOGS" | grep -vE 'All Monitors'; echo '```'; } >>"$REPORT"
+
+  say "- SIGHUP with the original config restored."
+  reload <<<"$ORIG"
+  for rs in rs01 rs02; do
+    expect "$rs has syslog01's session and both VIPs again" 60 $rs "$RIB; echo; $NBR" \
+      "$(has $DNS_VIP $SYSLOG01) && $(has $SYS_VIP $SYSLOG01) && g '^$SYSLOG01 .*Establ'"
+  done
+else
+  say ""
+  say "## 8. Config reload (SIGHUP): skipped, this GoCast build has no config reload"
+fi
 
 for s in $(dc config --services); do dc logs --no-color --timestamps "$s" >"$OUT/logs/$s.log" 2>&1; done
 { echo; echo "## Summary"; echo; echo "$PASSED passed, $FAILED failed. Full container logs: logs/"; } >>"$REPORT"
